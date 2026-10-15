@@ -12,7 +12,7 @@ namespace vfd_monitor_nmodbus
 {
     public partial class ChannelSelectForm : Form
     {
-        private const int MAX_CHANNEL = 96;
+        private readonly int MAX_CHANNEL = VfdMonitorForm.Instance.GetMaxChannel();
         private const int MAX_USEFUL_CHANNEL = 64;
         private const int GROUP_SIZE = 32;
 

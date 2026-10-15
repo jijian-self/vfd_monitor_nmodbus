@@ -121,6 +121,7 @@
     <Compile Include="ChannelSelectForm.Designer.cs">
       <DependentUpon>ChannelSelectForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="CommunicationRecovery.cs" />
     <Compile Include="FaultDictionary.cs" />
     <Compile Include="IODb.cs" />
     <Compile Include="SetFreqForm.cs">
@@ -137,6 +138,12 @@
     </Compile>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="WriteForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="WriteForm.Designer.cs">
+      <DependentUpon>WriteForm.cs</DependentUpon>
+    </Compile>
     <EmbeddedResource Include="ChannelSelectForm.resx">
       <DependentUpon>ChannelSelectForm.cs</DependentUpon>
       <SubType>Designer</SubType>
@@ -157,6 +164,9 @@
     <EmbeddedResource Include="VfdMonitorForm.resx">
       <DependentUpon>VfdMonitorForm.cs</DependentUpon>
       <SubType>Designer</SubType>
+    </EmbeddedResource>
+    <EmbeddedResource Include="WriteForm.resx">
+      <DependentUpon>WriteForm.cs</DependentUpon>
     </EmbeddedResource>
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>

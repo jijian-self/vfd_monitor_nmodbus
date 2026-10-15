@@ -19,7 +19,7 @@ namespace vfd_monitor_nmodbus
 
     public class IODb
     {
-        private readonly int MAX_CHANNEL = 96;
+        private readonly int MAX_CHANNEL = VfdMonitorForm.Instance.GetMaxChannel();
         private readonly double MAX_FREQ = 599.0;
         private readonly double MIN_FREQ = 0.0;
         public Dictionary<int, ChannelFreq> ChannelFreqDict;

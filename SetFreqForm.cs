@@ -12,7 +12,7 @@ namespace vfd_monitor_nmodbus
 {
     public partial class SetFreqForm : Form
     {
-        private const int MAX_CHANNEL = 96;
+        private readonly int MAX_CHANNEL = VfdMonitorForm.Instance.GetMaxChannel();
         private const int ENABLED_COLUMN_INDEX = 1;
         private const int DIRECTION_COLUMN_INDEX = 2;
         private const int FORWARD_FREQ_COLUMN_INDEX = 3;
