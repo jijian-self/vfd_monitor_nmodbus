@@ -1,0 +1,22 @@
+# Visual Studio workspace caches and per-user settings
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build outputs and intermediate files (including test projects)
+[Bb]in/
+[Oo]bj/
+
+# Local publish outputs
+/publish/
+
+# Local diagnostics and test results
+/_diagnostics/
+TestResults/
+*.log
+*.binlog
+
+# Keep source files, WinForms resources, project files, and lib/NModbus4.dll.
+# Do not ignore *.dll globally: lib/NModbus4.dll is a required dependency.

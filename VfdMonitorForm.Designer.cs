@@ -26,7 +26,7 @@ namespace vfd_monitor_nmodbus
             this.chartC = new ScottPlot.WinForms.FormsPlot();
             this.btnRefreshFreq = new System.Windows.Forms.Button();
             this.textBoxRefreshFreq = new System.Windows.Forms.TextBox();
-            this.btnClearFault = new System.Windows.Forms.Button();
+            this.btnReadFault = new System.Windows.Forms.Button();
             this.btnStopOperation = new System.Windows.Forms.Button();
             this.btnBackward = new System.Windows.Forms.Button();
             this.btnForward = new System.Windows.Forms.Button();
@@ -36,6 +36,7 @@ namespace vfd_monitor_nmodbus
             this.btnSaveFreq = new System.Windows.Forms.Button();
             this.btnFreqOption = new System.Windows.Forms.Button();
             this.btnInitReg = new System.Windows.Forms.Button();
+            this.btnWriteForm = new System.Windows.Forms.Button();
             this.SuspendLayout();
             // 
             // btnChannelSelect
@@ -131,15 +132,15 @@ namespace vfd_monitor_nmodbus
             this.textBoxRefreshFreq.Size = new System.Drawing.Size(100, 21);
             this.textBoxRefreshFreq.TabIndex = 9;
             // 
-            // btnClearFault
+            // btnReadFault
             // 
-            this.btnClearFault.Location = new System.Drawing.Point(170, 830);
-            this.btnClearFault.Name = "btnClearFault";
-            this.btnClearFault.Size = new System.Drawing.Size(100, 30);
-            this.btnClearFault.TabIndex = 11;
-            this.btnClearFault.Text = "清除故障";
-            this.btnClearFault.UseVisualStyleBackColor = true;
-            this.btnClearFault.Click += new System.EventHandler(this.btnClearFault_Click);
+            this.btnReadFault.Location = new System.Drawing.Point(170, 830);
+            this.btnReadFault.Name = "btnReadFault";
+            this.btnReadFault.Size = new System.Drawing.Size(100, 30);
+            this.btnReadFault.TabIndex = 11;
+            this.btnReadFault.Text = "清除故障";
+            this.btnReadFault.UseVisualStyleBackColor = true;
+            this.btnReadFault.Click += new System.EventHandler(this.btnReadFault_Click);
             // 
             // btnStopOperation
             // 
@@ -257,6 +258,16 @@ namespace vfd_monitor_nmodbus
             this.btnInitReg.Text = "变频器初始化";
             this.btnInitReg.UseVisualStyleBackColor = true;
             this.btnInitReg.Click += new System.EventHandler(this.btnInitReg_Click);
+            //
+            // btnWriteForm
+            //
+            this.btnWriteForm.Location = new System.Drawing.Point(390, 830);
+            this.btnWriteForm.Name = "btnWriteForm";
+            this.btnWriteForm.Size = new System.Drawing.Size(100, 30);
+            this.btnWriteForm.TabIndex = 22;
+            this.btnWriteForm.Text = "批量写入";
+            this.btnWriteForm.UseVisualStyleBackColor = true;
+            this.btnWriteForm.Click += new System.EventHandler(this.btnWriteForm_Click);
             // 
             // VfdMonitorForm
             // 
@@ -264,6 +275,7 @@ namespace vfd_monitor_nmodbus
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.AutoScroll = true;
             this.ClientSize = new System.Drawing.Size(1448, 1011);
+            this.Controls.Add(this.btnWriteForm);
             this.Controls.Add(this.btnInitReg);
             this.Controls.Add(this.btnFreqOption);
             this.Controls.Add(this.btnSaveFreq);
@@ -273,7 +285,7 @@ namespace vfd_monitor_nmodbus
             this.Controls.Add(this.btnForward);
             this.Controls.Add(this.btnBackward);
             this.Controls.Add(this.btnStopOperation);
-            this.Controls.Add(this.btnClearFault);
+            this.Controls.Add(this.btnReadFault);
             this.Controls.Add(this.textBoxRefreshFreq);
             this.Controls.Add(this.btnRefreshFreq);
             this.Controls.Add(this.btnChannelSelect);
@@ -306,7 +318,7 @@ namespace vfd_monitor_nmodbus
         private ScottPlot.WinForms.FormsPlot chartC;
         private Button btnRefreshFreq;
         private TextBox textBoxRefreshFreq;
-        private Button btnClearFault;
+        private Button btnReadFault;
         private Button btnStopOperation;
         private Button btnBackward;
         private Button btnForward;
@@ -316,6 +328,7 @@ namespace vfd_monitor_nmodbus
         private Button btnSaveFreq;
         private Button btnFreqOption;
         private Button btnInitReg;
+        private Button btnWriteForm;
     }
 }
 

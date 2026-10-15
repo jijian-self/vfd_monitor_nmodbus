@@ -27,23 +27,21 @@ namespace vfd_monitor_nmodbus
         private SemaphoreSlim[] _modbusLock;
 
         private const int MAX_WRITE_RETRY = 10;     // 最大写入重试次数
-        private const int MAX_CONNECT_RETRY = 10;     // 最大连接重试次数
-        private const int MAX_CHANNEL = 96;
+        private const int CONNECT_TIMEOUT_MILLISECONDS = 3000;
+        private const int COMMUNICATION_ERROR_LOG_INTERVAL_MILLISECONDS = 2000;
+        private const int STOP_COMMAND_REPEAT_INTERVAL = 100; // 持续停止命令的轮询间隔
+        private const int MAX_CHANNEL = 256;
         private const int SHOW_CHANNEL = 64;
-        private const int GROUP_SIZE = 8;           // 每组同IP8台
+        private const int GROUP_SIZE = 32;           // 每组同IP8台
         private readonly string[] GROUP_IPS = {      // 12个网口IP
-            "192.168.1.201",
-            "192.168.1.202",
-            "192.168.1.203",
-            "192.168.1.204",
-            "192.168.1.205",
-            "192.168.1.206",
-            "192.168.1.207",
-            "192.168.1.208",
-            "192.168.1.209",
-            "192.168.1.210",
-            "192.168.1.211",
-            "192.168.1.212"
+            "192.168.0.201",
+            "192.168.0.202",
+            "192.168.0.203",
+            "192.168.0.204",
+            "192.168.0.205",
+            "192.168.0.206",
+            "192.168.0.207",
+            "192.168.0.208"
         };
         private const int TCP_PORT = 5001;
         private const byte SLAVE_ID = 0x01;
@@ -101,13 +99,18 @@ namespace vfd_monitor_nmodbus
         private const double PLOT_X_MAX = MAX_CHANNEL + 0.5;
         private const double PLOT_MIN_VISIBLE_CHANNELS = 16;
         private const string PLOT_FONT_NAME = "Microsoft YaHei";
+
+        public int GetMaxChannel()
+        {
+            return MAX_CHANNEL;
+        }
         #endregion
 
         #region 通道启用状态（用户可控制）
-        private int allChannelRunning; // 运行状态，与UI的点击绑定，正转为1，反转为2，停止为0
         private int[] isChannelReading; // 通道是否正在读取
         private bool[] isChannelFault; // 通道是否故障
-        private int[] channelRetryTime; // 通道重启次数
+        private int[] isChannelReconnecting;
+        private DateTime[] lastCommunicationErrorLogTimeUtc;
         #endregion
 
         #region 私有属性
@@ -116,9 +119,16 @@ namespace vfd_monitor_nmodbus
         private ModbusSerialMaster[] modbusMasters;
         private int[] readPollCounter;
         private double[,] readDataBuffer;
+        private bool[,] readDataValid;
+        private bool[,] readDataStale;
         private System.Windows.Forms.Timer mainTimer;
         private System.Windows.Forms.Timer logTimer;
-        private bool autoReconnectEnabled = true; // 是否自动重连
+        private CancellationTokenSource _continuousStopCancellation;
+        private Task _continuousStopTask = Task.CompletedTask;
+        private int _pollInProgress;
+        private ModbusConnectionFactory _connectionFactory;
+        private bool _closeInProgress;
+        private bool _closeApproved;
         //private DateTime[] lastCommTime; // 记录每个通道最后一次通信时间
         private ConcurrentQueue<string> logBuffer;
         private ScottPlot.WinForms.FormsPlot _panningPlot;
@@ -143,6 +153,7 @@ namespace vfd_monitor_nmodbus
         private void InitVariables()
         {
             _modbusLock = new SemaphoreSlim[MAX_CHANNEL];
+            _connectionFactory = new ModbusConnectionFactory();
             for (int ch = 0;ch < MAX_CHANNEL; ch++)
             {
                 _modbusLock[ch] = new SemaphoreSlim(1);
@@ -152,10 +163,13 @@ namespace vfd_monitor_nmodbus
             modbusMasters = new ModbusSerialMaster[MAX_CHANNEL];
             readPollCounter = new int[MAX_CHANNEL];
             readDataBuffer = new double[MAX_CHANNEL, 4];
+            readDataValid = new bool[MAX_CHANNEL, 4];
+            readDataStale = new bool[MAX_CHANNEL, 4];
             isChannelReading = new int[MAX_CHANNEL];
             isChannelFault = new bool[MAX_CHANNEL];
             //lastCommTime = new DateTime[MAX_CHANNEL];
-            channelRetryTime = new int[MAX_CHANNEL];
+            isChannelReconnecting = new int[MAX_CHANNEL];
+            lastCommunicationErrorLogTimeUtc = new DateTime[MAX_CHANNEL];
             logBuffer = new ConcurrentQueue<string>();
 
             for (int i = 0; i < MAX_CHANNEL; i++)
@@ -164,7 +178,8 @@ namespace vfd_monitor_nmodbus
                 isChannelReading[i] = 0;
                 isChannelFault[i] = false;
                 //lastCommTime[i] = DateTime.Now;
-                channelRetryTime[i] = 0;
+                isChannelReconnecting[i] = 0;
+                lastCommunicationErrorLogTimeUtc[i] = DateTime.MinValue;
             }
             database = new IODb();
 
@@ -179,7 +194,6 @@ namespace vfd_monitor_nmodbus
             };
             logTimer.Tick += (s, e) => PrintLog();
 
-            allChannelRunning = 0;
             isRunning = false;
             haveSaved = false;
             UpdateUiState(false);
@@ -191,9 +205,13 @@ namespace vfd_monitor_nmodbus
             {
                 isChannelReading[i] = 0;
                 isChannelFault[i] = false;
+                for (int dataIndex = 0; dataIndex < 4; dataIndex++)
+                {
+                    readDataValid[i, dataIndex] = false;
+                    readDataStale[i, dataIndex] = false;
+                }
                 //lastCommTime[i] = DateTime.Now;
             }
-            allChannelRunning = 0;
             //logBuffer = new ConcurrentQueue<string>();
         }
 
@@ -266,7 +284,7 @@ namespace vfd_monitor_nmodbus
         {
             lampPanel.Location = new Point(20, 830 + offsetY);
             btnStartStop.Location = new Point(60, 830 + offsetY);
-            btnClearFault.Location = new Point(170, 830 + offsetY);
+            btnReadFault.Location = new Point(170, 830 + offsetY);
             btnChannelSelect.Location = new Point(280, 830 + offsetY);
 
             btnImport.Location = new Point(60, 870 + offsetY);
@@ -280,6 +298,7 @@ namespace vfd_monitor_nmodbus
             btnRefreshFreq.Location = new Point(60, 950 + offsetY);
             textBoxRefreshFreq.Location = new Point(170, 953 + offsetY);
             btnInitReg.Location = new Point(280, 950 + offsetY);
+            btnWriteForm.Location = new Point(390, 830 + offsetY);
         }
 
         private async void InitReg()
@@ -335,48 +354,66 @@ namespace vfd_monitor_nmodbus
 
         private async Task ConnectSingleChannelTcp(int ch)
         {
+            if (ch < 0 || ch >= MAX_CHANNEL) return;
+            if (!database.ChannelFreqDict[ch].Enabled) return;
+            if (!IsChannelDisconnected(ch)) return;
+            // Prevent duplicate reconnects for the same channel. There is no global
+            // reconnect concurrency limit and no retry backoff.
+            if (Interlocked.CompareExchange(ref isChannelReconnecting[ch], 1, 0) != 0) return;
+
+            ModbusChannelConnection newConnection = null;
             try
             {
-                if (ch >= MAX_CHANNEL) return;
                 int index = ch % GROUP_SIZE;
-                if (!database.ChannelFreqDict[ch].Enabled)
+                if (!GetChannelIp(ch, out string ip))
+                    throw new InvalidOperationException("通道IP映射失败");
+
+                // Only replace transport objects here. Reconnection must never send
+                // forward, reverse, or stop commands to the VFD.
+                await _modbusLock[ch].WaitAsync();
+                try
                 {
-                    vfdSockets[ch] = null;
-                    return;
+                    CloseChannelConnectionNoLock(ch);
+                }
+                finally
+                {
+                    _modbusLock[ch].Release();
                 }
 
-                if (GetChannelIp(ch, out string ip))
+                newConnection = await _connectionFactory.ConnectAsync(
+                    ip,
+                    TCP_PORT + index,
+                    CONNECT_TIMEOUT_MILLISECONDS);
+
+                await _modbusLock[ch].WaitAsync();
+                try
                 {
-                    vfdSockets[ch] = new TcpClient
+                    if (!isRunning || !database.ChannelFreqDict[ch].Enabled)
                     {
-                        ReceiveTimeout = 3000,
-                        SendTimeout = 3000
-                    };
-                    var connectTask = vfdSockets[ch].ConnectAsync(ip, TCP_PORT + index);
-                    if (await Task.WhenAny(connectTask, Task.Delay(3000)) != connectTask)
-                    {
-                        throw new Exception("TCP 连接超时（3s）");
-                    }
-                    if (vfdSockets[ch] == null || !vfdSockets[ch].Connected)
-                    {
-                        throw new Exception("socket连接异常");
+                        newConnection.Dispose();
+                        newConnection = null;
+                        return;
                     }
 
-                    // 连接成功
-                    AppendLog($"通道{ch + 1} 连接成功：{ip}:{TCP_PORT + index}");
-                    channelRetryTime[ch] = 0;
-
-                    modbusMasters[ch] = ModbusSerialMaster.CreateRtu(vfdSockets[ch]);
-                    modbusMasters[ch].Transport.ReadTimeout = 1500;
-                    modbusMasters[ch].Transport.WriteTimeout = 1500;
+                    vfdSockets[ch] = newConnection.Client;
+                    modbusMasters[ch] = newConnection.Master;
+                    newConnection = null;
                 }
+                finally
+                {
+                    _modbusLock[ch].Release();
+                }
+
+                AppendLog($"通道{ch + 1} 通信连接成功：{ip}:{TCP_PORT + index}");
             }
             catch (Exception ex)
             {
-                AppendLog($"通道 {ch + 1} 连接失败：{ex.Message}，准备重试");
-                vfdSockets[ch] = null;
-                modbusMasters[ch] = null;
-                channelRetryTime[ch]++;
+                if (newConnection != null) newConnection.Dispose();
+                LogCommunicationError(ch, "连接失败：" + ex.Message);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref isChannelReconnecting[ch], 0);
             }
         }
         #endregion
@@ -423,11 +460,18 @@ namespace vfd_monitor_nmodbus
         private async void TimerTick(object sender, EventArgs e)
         {
             if (!isRunning) return;
+            if (Interlocked.CompareExchange(ref _pollInProgress, 1, 0) != 0) return;
 
-            await ProcessAllChannel();
-
-            UpdateDataText();
-            UpdateChartUI();
+            try
+            {
+                await ProcessAllChannel();
+                UpdateDataText();
+                UpdateChartUI();
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _pollInProgress, 0);
+            }
         }
 
         private async Task ProcessAllChannel()
@@ -443,7 +487,8 @@ namespace vfd_monitor_nmodbus
                     if (!database.ChannelFreqDict[ch].Enabled) continue;
                     if (IsChannelDisconnected(ch))
                     {
-                        await ConnectSingleChannelTcp(ch);
+                        MarkChannelReadDataStale(ch);
+                        _ = ConnectSingleChannelTcp(ch);
                         continue; // 本次不通信，等重连成功
                     }
                 }
@@ -458,42 +503,44 @@ namespace vfd_monitor_nmodbus
         {
             if (Interlocked.CompareExchange(ref isChannelReading[ch], 1, 0) == 1)
                 return;
-            readPollCounter[ch]++;
-
-            int read_index = readPollCounter[ch];
-            int idx = read_index % 4;
-            int addr = REG_ADDR[idx];
-
-            ushort value = await SendReadCmd(ch, (ushort)addr);
-            if (idx == 3)
+            try
             {
-                byte low_err = (byte)(value & 0xFF);
-                if (low_err == 0x2A)
+                readPollCounter[ch]++;
+
+                int read_index = readPollCounter[ch];
+                int idx = read_index % 4;
+                int addr = REG_ADDR[idx];
+
+                RegisterReadResult result = await SendReadCmdAsync(ch, addr);
+                if (!result.TryGetValue(out ushort value))
                 {
-                    SendCmd(ch, REG_RESET_ADDR, 0x0002);
-                    int run_dir;
-                    if (allChannelRunning == 1) run_dir = database.ChannelFreqDict[ch].Opposite ? REG_BACKWARD_RUN_CMD : REG_FORWARD_RUN_CMD;
-                    else if (allChannelRunning == 2) run_dir = database.ChannelFreqDict[ch].Opposite ? REG_FORWARD_RUN_CMD : REG_BACKWARD_RUN_CMD;
-                    else run_dir = REG_STOP_CMD;
-                    await SendCmdRunning(ch, run_dir);
-                    AppendLog($"通道{ch + 1} 已重发命令：" + run_dir);
+                    readDataStale[ch, idx] = true;
+                    HandleReadFailure(ch, result.ErrorMessage);
+                    return;
                 }
 
-                string faultInfo = GetFaultInfo(value);
-                if (faultInfo != null)
+                HandleReadSuccess(ch, idx);
+                if (idx == 3)
                 {
-                    AppendLog($"通道{ch + 1} 返回故障：" + faultInfo + " 故障码：" + value);
-                    isChannelFault[ch] = true;
-                    readPollCounter[ch] = 0;
+                    string faultInfo = GetFaultInfo(value);
+                    if (faultInfo != null)
+                    {
+                        AppendLog($"通道{ch + 1} 返回故障：" + faultInfo + " 故障码：" + value);
+                        isChannelFault[ch] = true;
+                        readPollCounter[ch] = 0;
+                    }
+                    else isChannelFault[ch] = false;
                 }
-                else isChannelFault[ch] = false;
+                else
+                {
+                    readDataBuffer[ch, idx] = DataUnitCalc(value, REG_ADDR[idx]);
+                    readDataValid[ch, idx] = true;
+                }
             }
-            else
+            finally
             {
-                readDataBuffer[ch, idx] = DataUnitCalc(value, REG_ADDR[idx]);
+                Interlocked.Exchange(ref isChannelReading[ch], 0);
             }
-            
-            Interlocked.Exchange(ref isChannelReading[ch], 0);
         }
         #endregion
 
@@ -505,9 +552,16 @@ namespace vfd_monitor_nmodbus
             while (sendCmdCount < MAX_WRITE_RETRY)
             {
                 await Task.Delay(ch % GROUP_SIZE + 1); // 稍微错开一点时间，避免同时启动的高并发压力
-                SendCmd(ch, REG_CTRL_ADDR, value);
+                await SendCmdAsync(ch, REG_CTRL_ADDR, value);
                 sendCmdCount++;
-                freq = await SendReadCmd(ch, (ushort)REG_ADDR_OPTIONAL[0]);
+                RegisterReadResult result = await SendReadCmdAsync(ch, REG_ADDR_OPTIONAL[0]);
+                if (!result.TryGetValue(out freq))
+                {
+                    MarkReadAddressStale(ch, REG_ADDR_OPTIONAL[0]);
+                    HandleReadFailure(ch, result.ErrorMessage);
+                    continue;
+                }
+
                 AppendLog($"ch = {ch} 收到freq-{freq}");
 
                 if (value != REG_STOP_CMD && freq > 0) { AppendLog($"通道{ch + 1} 开始运行"); break; }
@@ -515,17 +569,31 @@ namespace vfd_monitor_nmodbus
             }
             AppendLog($"通道{ch + 1} 共发送命令{sendCmdCount}次");
         }
+
+        // 保留给现有 UI 事件的 fire-and-forget 入口；需要等待或取消时使用 SendCmdAsync。
         public async void SendCmd(int ch, int addr, int value)
         {
-            if (!database.ChannelFreqDict[ch].Enabled) return;
-            if (IsChannelDisconnected(ch)) return;
+            await SendCmdAsync(ch, addr, value);
+        }
 
-            await _modbusLock[ch].WaitAsync();
-            await Task.Delay(WRITE_WAIT_DELAY);
+        private async Task SendCmdAsync(int ch, int addr, int value, CancellationToken cancellationToken = default(CancellationToken), bool logSuccess = true)
+        {
+            if (!database.ChannelFreqDict[ch].Enabled) return;
+
+            await _modbusLock[ch].WaitAsync(cancellationToken);
             try
             {
-                await modbusMasters[ch].WriteSingleRegisterAsync(SLAVE_ID, (ushort)addr, (ushort)value);
-                AppendLog($"通道{ch + 1} 发送指令： addr-{addr} val-{value}");
+                if (IsChannelDisconnected(ch)) return;
+
+                ModbusSerialMaster master = modbusMasters[ch];
+                await Task.Delay(WRITE_WAIT_DELAY, cancellationToken);
+                await master.WriteSingleRegisterAsync(SLAVE_ID, (ushort)addr, (ushort)value);
+                if (logSuccess)
+                    AppendLog($"通道{ch + 1} 发送指令： addr-{addr} val-{value}");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (SlaveException ex)
             {
@@ -551,40 +619,98 @@ namespace vfd_monitor_nmodbus
             }
         }
 
-        private async Task<ushort> SendReadCmd(int ch, int addr)
+        private async Task<RegisterReadResult> SendReadCmdAsync(int ch, int addr)
         {
-            ushort value = 0;
             await _modbusLock[ch].WaitAsync();
             try
             {
-                if (modbusMasters[ch] == null) return 0;
+                if (IsChannelDisconnected(ch))
+                    return RegisterReadResult.Failed("通信连接不可用");
+
+                ModbusSerialMaster master = modbusMasters[ch];
                 await Task.Delay(ch % GROUP_SIZE + 1); // 稍微错开一点时间，避免同时启动的高并发压力
                 await Task.Delay(WRITE_WAIT_DELAY);
-                ushort[] registers = await modbusMasters[ch].ReadHoldingRegistersAsync(SLAVE_ID, (ushort)addr, 1);
-                value = registers[0];
-                AppendLog($"ch = {ch} 收到value-{value}");
+                ushort[] registers = await master.ReadHoldingRegistersAsync(SLAVE_ID, (ushort)addr, 1);
+                if (registers == null || registers.Length == 0)
+                    return RegisterReadResult.Failed("未收到寄存器数据");
+
+                return RegisterReadResult.Succeeded(registers[0]);
             }
             catch (SlaveException ex)
             {
-                AppendLog($"通道{ch + 1} 输入错误命令，收到故障读写信息" + FaultDictionary.GetModbusMessage(ex.SlaveExceptionCode));
+                return RegisterReadResult.Failed(
+                    "收到故障读写信息：" + FaultDictionary.GetModbusMessage(ex.SlaveExceptionCode));
             }
             catch (TimeoutException ex)
             {
-                AppendLog($"通道{ch + 1} 发送超时：{ex.Message}");
+                return RegisterReadResult.Failed("读取超时：" + ex.Message);
             }
             catch (SocketException ex)
             {
-                AppendLog($"通道{ch + 1} TCP连接失败：{ex.Message}");
+                return RegisterReadResult.Failed("TCP连接失败：" + ex.Message);
             }
             catch (Exception ex)
             {
-                AppendLog($"通道{ch + 1} 发生错误：{ex.Message}");
+                return RegisterReadResult.Failed("读取错误：" + ex.Message);
             }
             finally
             {
                 _modbusLock[ch].Release();
             }
+        }
+
+        public async Task<ushort> SendReadCmd(int ch, int addr)
+        {
+            RegisterReadResult result = await SendReadCmdAsync(ch, addr);
+            if (!result.TryGetValue(out ushort value))
+            {
+                HandleReadFailure(ch, result.ErrorMessage);
+                return 0;
+            }
             return value;
+        }
+
+        private void HandleReadFailure(int ch, string errorMessage)
+        {
+            LogCommunicationError(ch, "读取失败：" + errorMessage);
+        }
+
+        private void MarkChannelReadDataStale(int ch)
+        {
+            for (int dataIndex = 0; dataIndex < 4; dataIndex++)
+            {
+                if (readDataValid[ch, dataIndex])
+                    readDataStale[ch, dataIndex] = true;
+            }
+        }
+
+        private void MarkReadAddressStale(int ch, int address)
+        {
+            for (int dataIndex = 0; dataIndex < 3; dataIndex++)
+            {
+                if (REG_ADDR[dataIndex] == address && readDataValid[ch, dataIndex])
+                    readDataStale[ch, dataIndex] = true;
+            }
+        }
+
+        private void HandleReadSuccess(int ch, int dataIndex)
+        {
+            bool wasStale = readDataStale[ch, dataIndex];
+            readDataStale[ch, dataIndex] = false;
+            if (wasStale)
+                AppendLog($"通道{ch + 1} 通信读取已恢复");
+        }
+
+        private void LogCommunicationError(int ch, string message)
+        {
+            DateTime now = DateTime.UtcNow;
+            DateTime lastLogTime = lastCommunicationErrorLogTimeUtc[ch];
+            if ((now - lastLogTime).TotalMilliseconds <
+                COMMUNICATION_ERROR_LOG_INTERVAL_MILLISECONDS)
+                return;
+
+            lastCommunicationErrorLogTimeUtc[ch] = now;
+            AppendLog($"通道{ch + 1} {message}");
         }
         #endregion
 
@@ -611,6 +737,7 @@ namespace vfd_monitor_nmodbus
                 if (!database.ChannelFreqDict[i].Enabled) continue;
                 showChannel++;
                 if (showChannel > SHOW_CHANNEL) break;
+                if (!readDataValid[i, dataIndex]) continue;
 
                 xs.Add(i + 1);
                 ys.Add(readDataBuffer[i, dataIndex]);
@@ -641,6 +768,7 @@ namespace vfd_monitor_nmodbus
                 if (!database.ChannelFreqDict[i].Enabled) continue;
                 showChannel++;
                 if (showChannel > SHOW_CHANNEL) break;
+                if (!readDataValid[i, dataIndex]) continue;
 
                 double x = i + 1;
                 if (x < left || x > right) continue;
@@ -798,9 +926,32 @@ namespace vfd_monitor_nmodbus
             for (int i = 0; i < MAX_CHANNEL; i++)
             {
                 if (!database.ChannelFreqDict[i].Enabled) continue;
-                sb.AppendLine($"通道{i + 1} → {REG_TEXT_OPTIONAL[comboBox1.SelectedIndex]}:{readDataBuffer[i, 0]}  {REG_TEXT_OPTIONAL[comboBox2.SelectedIndex]}:{readDataBuffer[i, 1]}  {REG_TEXT_OPTIONAL[comboBox3.SelectedIndex]}:{readDataBuffer[i, 2]}");
+                sb.AppendLine(
+                    $"通道{i + 1} → " +
+                    $"{REG_TEXT_OPTIONAL[comboBox1.SelectedIndex]}:{FormatReadData(i, 0)}  " +
+                    $"{REG_TEXT_OPTIONAL[comboBox2.SelectedIndex]}:{FormatReadData(i, 1)}  " +
+                    $"{REG_TEXT_OPTIONAL[comboBox3.SelectedIndex]}:{FormatReadData(i, 2)}");
             }
             txtData.Text = sb.ToString();
+        }
+
+        private string FormatReadData(int ch, int dataIndex)
+        {
+            if (!readDataValid[ch, dataIndex]) return "--";
+
+            string value = readDataBuffer[ch, dataIndex].ToString();
+            if (readDataStale[ch, dataIndex])
+                return value + "（上次有效值）";
+            return value;
+        }
+
+        private void InvalidateReadDataIndex(int dataIndex)
+        {
+            for (int ch = 0; ch < MAX_CHANNEL; ch++)
+            {
+                readDataValid[ch, dataIndex] = false;
+                readDataStale[ch, dataIndex] = false;
+            }
         }
         #endregion
 
@@ -815,7 +966,7 @@ namespace vfd_monitor_nmodbus
 
             try
             {
-                CloseAllConnections();
+                await CloseAllConnectionsAsync();
                 await ConnectTcp();
                 mainTimer.Start();
                 AppendLog("通道配置已更新，自动重连完成");
@@ -826,7 +977,7 @@ namespace vfd_monitor_nmodbus
             }
         }
 
-        private void CloseAllConnections()
+        private async Task CloseAllConnectionsAsync()
         {
             try
             {
@@ -838,9 +989,17 @@ namespace vfd_monitor_nmodbus
                     readDataBuffer[ch, 1] = 0;
                     readDataBuffer[ch, 2] = 0;
                     readDataBuffer[ch, 3] = 0;
+                    readDataValid[ch, 0] = false;
+                    readDataValid[ch, 1] = false;
+                    readDataValid[ch, 2] = false;
+                    readDataValid[ch, 3] = false;
+                    readDataStale[ch, 0] = false;
+                    readDataStale[ch, 1] = false;
+                    readDataStale[ch, 2] = false;
+                    readDataStale[ch, 3] = false;
                 }
                 UpdateChartUI();
-                CloseAllSockets();
+                await CloseAllSocketsAsync();
                 AppendLog("所有TCP连接通道已经关闭");
             }
             catch (Exception ex)
@@ -901,35 +1060,60 @@ namespace vfd_monitor_nmodbus
             lampPanel.BackColor = running ? Color.Lime : Color.Red;
         }
 
-        private async void CloseAllSockets()
+        private async Task CloseAllSocketsAsync()
         {
             for (int i = 0; i < MAX_CHANNEL; i++)
             {
                 await _modbusLock[i].WaitAsync();
-                CloseTcpClient(vfdSockets[i]);
-                vfdSockets[i] = null;
-                modbusMasters[i] = null;
-                _modbusLock[i].Release();
+                try
+                {
+                    CloseChannelConnectionNoLock(i);
+                }
+                finally
+                {
+                    _modbusLock[i].Release();
+                }
             }
         }
+
+        private void CloseChannelConnectionNoLock(int ch)
+        {
+            try
+            {
+                if (modbusMasters[ch] != null) modbusMasters[ch].Dispose();
+            }
+            catch
+            {
+            }
+
+            CloseTcpClient(vfdSockets[ch]);
+            modbusMasters[ch] = null;
+            vfdSockets[ch] = null;
+        }
+
         private void CloseTcpClient(TcpClient client)
         {
             if (client == null) return;
-            if (client.Connected)
+            try
             {
-                client.GetStream().Close();
                 client.Close();
             }
-            client.Dispose();
+            catch
+            {
+            }
+
+            try
+            {
+                client.Dispose();
+            }
+            catch
+            {
+            }
         }
         private bool IsChannelDisconnected(int ch)
         {
-            if (vfdSockets[ch] == null) return true;
-            if (!vfdSockets[ch].Connected) return true;
             if (modbusMasters[ch] == null) return true;
-            //if ((DateTime.Now - lastCommTime[ch]).TotalSeconds > 60)
-            //    return true;
-            return false;
+            return TcpConnectionState.IsDisconnected(vfdSockets[ch]);
         }
 
         public void PrintLog()
@@ -974,59 +1158,6 @@ namespace vfd_monitor_nmodbus
             catch { }
         }
 
-        private void RestartChannel(int ch)
-        {
-            // 用于处理单个通道出现超时后的重启
-            if (this.InvokeRequired)
-            {
-                this.Invoke(new Action(() =>
-                {
-                    RestartChannel(ch);
-                }));
-                return;
-            }
-            
-            if (!database.ChannelFreqDict[ch].Enabled) return;
-            mainTimer.Stop();
-            CloseTcpClient(vfdSockets[ch]);
-            vfdSockets[ch] = null;
-            modbusMasters[ch] = null;
-
-            isChannelReading[ch] = 0;
-            isChannelFault[ch] = false;
-
-            int index = ch % GROUP_SIZE;
-            AppendLog($"通道{ch + 1} 准备重连");
-            try
-            {
-                if (GetChannelIp(ch, out string ip))
-                {
-                    vfdSockets[ch] = new TcpClient
-                    {
-                        ReceiveTimeout = 2000,
-                        SendTimeout = 2000
-                    };
-                    vfdSockets[ch].Connect(ip, TCP_PORT + index);
-                    modbusMasters[ch] = ModbusSerialMaster.CreateRtu(vfdSockets[ch]);
-                    AppendLog($"通道{ch + 1} 连接成功：{ip}:{TCP_PORT + index}");
-                    channelRetryTime[ch] = 0;
-                }
-            }
-            catch (Exception ex)
-            {
-                AppendLog($"通道 {ch + 1} 连接失败：{ex.Message}");
-                vfdSockets[ch] = null;
-                modbusMasters[ch] = null;
-                channelRetryTime[ch]++;
-                if (channelRetryTime[ch] > MAX_CONNECT_RETRY)
-                {
-                    database.ChannelFreqDict[ch].Enabled = false;
-                    AppendLog($"通道 {ch + 1} 重连次数超过上限，已暂时禁用");
-                }
-            }
-            mainTimer.Start();
-        }
-
         private void StopAllChannel()
         {
             for (int ch = 0; ch < MAX_CHANNEL; ch++)
@@ -1042,31 +1173,144 @@ namespace vfd_monitor_nmodbus
             for (int ch = 0; ch < MAX_CHANNEL; ch++)
             {
                 int channel = ch;
-                tasks.Add(Task.Run(() => SendCmd(channel, REG_CTRL_ADDR, REG_STOP_CMD)));
+                tasks.Add(SendCmdAsync(channel, REG_CTRL_ADDR, REG_STOP_CMD));
             }
 
             await Task.WhenAll(tasks);
         }
 
-        protected override void OnFormClosing(FormClosingEventArgs e)
+        private async Task StartContinuousStopAsync()
         {
-            base.OnFormClosing(e);
-            isRunning = false; mainTimer.Stop(); logTimer.Stop();
-            mainTimer.Dispose(); logTimer.Dispose();
-            //StopAllChannel();
-            CloseAllSockets();
-            if (!haveSaved)
+            while (_continuousStopTask != null && !_continuousStopTask.IsCompleted)
             {
-                if (MessageBox.Show("未保存，是否需要保存写入频率设置", "提示：", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK)
+                CancellationTokenSource cancellation = _continuousStopCancellation;
+                if (cancellation != null && !cancellation.IsCancellationRequested)
                 {
-                    OpenFileDialog ofd = new OpenFileDialog { Filter = "数据文件|*.csv" };
-                    if (ofd.ShowDialog() != DialogResult.OK) { e.Cancel = true; return; }
-                    database.WriteChannelFreq(ofd.FileName);
+                    await _continuousStopTask;
+                    return;
+                }
+
+                await _continuousStopTask;
+            }
+
+            _continuousStopCancellation = new CancellationTokenSource();
+            _continuousStopTask = SendStopCommandsUntilCancelledAsync(_continuousStopCancellation);
+            await _continuousStopTask;
+        }
+
+        private void CancelContinuousStop()
+        {
+            CancellationTokenSource cancellation = _continuousStopCancellation;
+            if (cancellation == null || cancellation.IsCancellationRequested) return;
+
+            cancellation.Cancel();
+        }
+
+        private async Task SendStopCommandsUntilCancelledAsync(CancellationTokenSource cancellation)
+        {
+            CancellationToken cancellationToken = cancellation.Token;
+            AppendLog("已开始持续发送停止运行命令");
+
+            try
+            {
+                var channelTasks = new List<Task>();
+                for (int ch = 0; ch < MAX_CHANNEL; ch++)
+                {
+                    int channel = ch;
+                    channelTasks.Add(SendStopCommandsForChannelUntilCancelledAsync(
+                        channel,
+                        cancellationToken));
+                }
+
+                await Task.WhenAll(channelTasks);
+            }
+            catch (OperationCanceledException)
+            {
+                // 点击其他按钮或关闭窗口时的正常退出路径。
+            }
+            finally
+            {
+                if (ReferenceEquals(_continuousStopCancellation, cancellation))
+                    _continuousStopCancellation = null;
+                cancellation.Dispose();
+                AppendLog("已停止持续发送停止运行命令");
+            }
+        }
+
+        private async Task SendStopCommandsForChannelUntilCancelledAsync(
+            int ch,
+            CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                if (database.ChannelFreqDict[ch].Enabled && !IsChannelDisconnected(ch))
+                {
+                    await SendCmdAsync(
+                        ch,
+                        REG_CTRL_ADDR,
+                        REG_STOP_CMD,
+                        cancellationToken,
+                        false);
+                }
+
+                await Task.Delay(STOP_COMMAND_REPEAT_INTERVAL, cancellationToken);
+            }
+        }
+
+        protected override async void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (_closeApproved)
+            {
+                base.OnFormClosing(e);
+                return;
+            }
+
+            e.Cancel = true;
+            if (_closeInProgress) return;
+            _closeInProgress = true;
+
+            try
+            {
+                if (!haveSaved &&
+                    MessageBox.Show(
+                        "未保存，是否需要保存写入频率设置",
+                        "提示：",
+                        MessageBoxButtons.OKCancel,
+                        MessageBoxIcon.Question) == DialogResult.OK)
+                {
+                    using (OpenFileDialog ofd = new OpenFileDialog { Filter = "数据文件|*.csv" })
+                    {
+                        if (ofd.ShowDialog() != DialogResult.OK) return;
+                        database.WriteChannelFreq(ofd.FileName);
+                    }
                     haveSaved = true;
                 }
-                // 如果强制保存请打开下一行注释
-                //else e.Cancel = true;
+
+                CancelContinuousStop();
+                isRunning = false;
+                mainTimer.Stop();
+                logTimer.Stop();
+                await CloseAllSocketsAsync();
+                mainTimer.Dispose();
+                logTimer.Dispose();
+                _closeApproved = true;
             }
+            catch (Exception ex)
+            {
+                AppendLog("关闭程序时释放通信连接失败：" + ex.Message);
+                _closeApproved = true;
+            }
+            finally
+            {
+                if (!_closeApproved) _closeInProgress = false;
+            }
+
+            if (_closeApproved) Close();
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            base.OnFormClosed(e);
         }
         #endregion
 
@@ -1087,6 +1331,7 @@ namespace vfd_monitor_nmodbus
             }
             else
             {
+                CancelContinuousStop();
                 mainTimer.Stop();
                 isRunning = false;
                 UpdateUiState(false);
@@ -1094,7 +1339,7 @@ namespace vfd_monitor_nmodbus
                 btnForward.Enabled = false;
                 btnStopOperation.Enabled = false;
                 await StopAllChannelAsync();
-                CloseAllSockets();
+                await CloseAllSocketsAsync();
                 //logTimer.Stop();
             }
         }
@@ -1141,7 +1386,7 @@ namespace vfd_monitor_nmodbus
             }
         }
 
-        private void btnClearFault_Click(object sender, EventArgs e)
+        private void btnReadFault_Click(object sender, EventArgs e)
         {
             for (int ch = 0; ch < MAX_CHANNEL; ch++)
             {
@@ -1158,6 +1403,8 @@ namespace vfd_monitor_nmodbus
                 AppendLog("请先点击启动控制启动系统");
                 return;
             }
+            CancelContinuousStop();
+            await _continuousStopTask;
             btnBackward.Enabled = false;
             //btnForward.Enabled = false;
             btnStopOperation.Enabled = true;
@@ -1171,7 +1418,6 @@ namespace vfd_monitor_nmodbus
                 }
             }
             await Task.WhenAll(tasks);
-            allChannelRunning = 1;
         }
 
         private async void btnBackward_Click(object sender, EventArgs e)
@@ -1181,6 +1427,8 @@ namespace vfd_monitor_nmodbus
                 AppendLog("请先点击启动控制启动系统");
                 return;
             }
+            CancelContinuousStop();
+            await _continuousStopTask;
             //btnBackward.Enabled = false;
             btnForward.Enabled = false;
             btnStopOperation.Enabled = true;
@@ -1194,21 +1442,13 @@ namespace vfd_monitor_nmodbus
                 }
             }
             await Task.WhenAll(tasks);
-            allChannelRunning = 2;
         }
 
         private async void btnStopOperation_Click(object sender, EventArgs e)
         {
             btnBackward.Enabled = true;
             btnForward.Enabled = true;
-            var tasks = new List<Task>();
-            for (int ch = 0; ch < MAX_CHANNEL; ch++)
-            {
-                if (database.ChannelFreqDict[ch].Enabled && vfdSockets[ch] != null && vfdSockets[ch].Connected)
-                    tasks.Add(SendCmdRunning(ch, REG_STOP_CMD));
-            }
-            await Task.WhenAll(tasks);
-            allChannelRunning = 0;
+            await StartContinuousStopAsync();
         }
 
         private void btnSaveFreq_Click(object sender, EventArgs e)
@@ -1228,6 +1468,7 @@ namespace vfd_monitor_nmodbus
         private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
         {
             REG_ADDR[0] = REG_ADDR_OPTIONAL[comboBox1.SelectedIndex];
+            InvalidateReadDataIndex(0);
             txtData.Clear();
             chartA.Plot.Title("数据A - " + REG_TEXT_OPTIONAL[comboBox1.SelectedIndex]);
             ApplyPlotFont(chartA);
@@ -1238,6 +1479,7 @@ namespace vfd_monitor_nmodbus
         private void comboBox2_SelectedIndexChanged(object sender, EventArgs e)
         {
             REG_ADDR[1] = REG_ADDR_OPTIONAL[comboBox2.SelectedIndex];
+            InvalidateReadDataIndex(1);
             txtData.Clear();
             chartB.Plot.Title("数据B - " + REG_TEXT_OPTIONAL[comboBox2.SelectedIndex]);
             ApplyPlotFont(chartB);
@@ -1248,6 +1490,7 @@ namespace vfd_monitor_nmodbus
         private void comboBox3_SelectedIndexChanged(object sender, EventArgs e)
         {
             REG_ADDR[2] = REG_ADDR_OPTIONAL[comboBox3.SelectedIndex];
+            InvalidateReadDataIndex(2);
             txtData.Clear();
             chartC.Plot.Title("数据C - " + REG_TEXT_OPTIONAL[comboBox3.SelectedIndex]);
             ApplyPlotFont(chartC);
@@ -1272,6 +1515,12 @@ namespace vfd_monitor_nmodbus
         private void btnInitReg_Click(object sender, EventArgs e)
         {
             InitReg();
+        }
+
+        private void btnWriteForm_Click(object sender, EventArgs e)
+        {
+            WriteForm form = new WriteForm();
+            form.Show();
         }
         #endregion
     }
