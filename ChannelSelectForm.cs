@@ -13,74 +13,79 @@ namespace vfd_monitor_nmodbus
     public partial class ChannelSelectForm : Form
     {
         private readonly int MAX_CHANNEL = VfdMonitorForm.Instance.GetMaxChannel();
-        private const int MAX_USEFUL_CHANNEL = 64;
-        private const int GROUP_SIZE = 32;
+        private readonly int GROUP_SIZE = VfdMonitorForm.Instance.GetGroupSize();
 
         public ChannelSelectForm()
         {
             InitializeComponent();
+            Text = $"通道选择（{MAX_CHANNEL}路 {(MAX_CHANNEL + GROUP_SIZE - 1) / GROUP_SIZE}组）";
+            btnAutoComplete.Text = $"启用全部{MAX_CHANNEL}路";
             CreateCheckboxes();
         }
 
         private void CreateCheckboxes()
         {
             int x = 20, y = 20;
-            for (int g = 0; g < 3; g++)
+            channelPanel.SuspendLayout();
+            for (int g = 0; g < (MAX_CHANNEL + GROUP_SIZE - 1) / GROUP_SIZE; g++)
             {
-                Label groupLabel = new Label
+                CheckBox groupCheckBox = new CheckBox
                 {
-                    Text = $"第{g + 1}组 ({g * 32 + 1}~{(g + 1) * 32})",
+                    Text = $"第{g + 1}组 ({g * GROUP_SIZE + 1}~{Math.Min((g + 1) * GROUP_SIZE, MAX_CHANNEL)}) 全选",
                     Location = new System.Drawing.Point(x, y),
                     AutoSize = true
                 };
-                this.Controls.Add(groupLabel);
+                channelPanel.Controls.Add(groupCheckBox);
+                List<CheckBox> groupChannels = new List<CheckBox>();
                 y += 25;
 
-                for (int i = 0; i < GROUP_SIZE; i++)
+                for (int i = 0; i < GROUP_SIZE && g * GROUP_SIZE + i < MAX_CHANNEL; i++)
                 {
                     int ch = g * GROUP_SIZE + i;
                     CheckBox cb = new CheckBox
                     {
                         Text = (ch + 1).ToString(),
-                        Size = new Size(48, 20),
+                        Size = new Size(45, 20),
                         Location = new System.Drawing.Point(x, y),
                         Checked = VfdMonitorForm.Instance.database.ChannelFreqDict[ch].Enabled,
                         Tag = ch
                     };
-                    this.Controls.Add(cb);
+                    channelPanel.Controls.Add(cb);
+                    groupChannels.Add(cb);
+                    cb.CheckedChanged += (sender, args) =>
+                        groupCheckBox.Checked = groupChannels.All(channel => channel.Checked);
 
-                    x += 50;
+                    x += 49;
                     if ((i + 1) % 16 == 0)
                     {
                         x = 20;
                         y += 22;
                     }
                 }
+                groupCheckBox.Checked = groupChannels.All(channel => channel.Checked);
+                groupCheckBox.Click += (sender, args) =>
+                {
+                    bool selected = groupCheckBox.Checked;
+                    foreach (CheckBox channel in groupChannels) channel.Checked = selected;
+                };
 
                 y += 30;
                 x = 20;
             }
+            channelPanel.ResumeLayout();
+        }
+
+        private IEnumerable<CheckBox> ChannelCheckBoxes()
+        {
+            return channelPanel.Controls.OfType<CheckBox>().Where(cb => cb.Tag is int);
         }
 
         private void btnSave_Click(object sender, EventArgs e)
         {
-            int useful_channel = 0;
-            foreach (Control c in this.Controls)
+            foreach (CheckBox cb in ChannelCheckBoxes())
             {
-                if (c is CheckBox cb && cb.Checked) { useful_channel++; }
-            }
-            if (useful_channel > MAX_USEFUL_CHANNEL)
-            {
-                VfdMonitorForm.Instance.AppendLog("选择多于64个变频器，无法同时启动");
-                return;
-            }
-            foreach (Control c in this.Controls)
-            {
-                if (c is CheckBox cb)
-                {
-                    int ch = (int)cb.Tag;
-                    VfdMonitorForm.Instance.database.ChannelFreqDict[ch].Enabled = cb.Checked;
-                }
+                int ch = (int)cb.Tag;
+                VfdMonitorForm.Instance.database.ChannelFreqDict[ch].Enabled = cb.Checked;
             }
             this.DialogResult = DialogResult.OK;
             this.Close();
@@ -98,48 +103,17 @@ namespace vfd_monitor_nmodbus
 
         private void btnAllForbid_Click(object sender, EventArgs e)
         {
-            foreach (Control c in this.Controls)
+            foreach (CheckBox cb in ChannelCheckBoxes())
             {
-                if (c is CheckBox cb && cb.Checked) { cb.Checked = false; }
-            }
-        }
-
-        private void btnUse64_Click(object sender, EventArgs e)
-        {
-            int useful_channel = 0;
-            foreach (Control c in this.Controls)
-            {
-                if (c is CheckBox cb) {
-                    cb.Checked = true;
-                    useful_channel++;
-                }
-                if (useful_channel == MAX_USEFUL_CHANNEL) break;
+                cb.Checked = false;
             }
         }
 
         private void btnAutoComplete_Click(object sender, EventArgs e)
         {
-            int useful_channel = 0;
-            int channel_iter = 1;
-            foreach (Control c in this.Controls)
+            foreach (CheckBox cb in ChannelCheckBoxes())
             {
-                if (useful_channel >= MAX_USEFUL_CHANNEL) return;
-                if (c is CheckBox cb)
-                {
-                    if (cb.Checked)
-                    {
-                        useful_channel++;
-                    }
-                    else
-                    {
-                        if (channel_iter > MAX_USEFUL_CHANNEL && useful_channel < MAX_USEFUL_CHANNEL)
-                        {
-                            cb.Checked = true;
-                            useful_channel++;
-                        }
-                    }
-                    channel_iter++;
-                }
+                cb.Checked = true;
             }
         }
     }

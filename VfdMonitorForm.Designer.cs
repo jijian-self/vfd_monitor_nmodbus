@@ -299,7 +299,7 @@ namespace vfd_monitor_nmodbus
             this.Controls.Add(this.btnStartStop);
             this.MaximizeBox = true;
             this.Name = "VfdMonitorForm";
-            this.Text = "64路VFD变频器监控系统";
+            this.Text = "VFD变频器监控系统";
             this.Load += new System.EventHandler(this.VfdMonitorForm_Load);
             this.ResumeLayout(false);
             this.PerformLayout();

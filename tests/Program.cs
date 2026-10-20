@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
@@ -38,6 +39,52 @@ namespace vfd_monitor_nmodbus.Tests
 
             Assert(produced && measurement == 0,
                 "successful zero remains distinguishable from a failed read");
+        }
+
+        private static void ConnectionSettingsUseConfiguredIpAndPortGroups()
+        {
+            Assert(File.Exists(ConnectionSettings.DefaultPath),
+                "connection JSON is copied beside the application");
+            ConnectionSettings.Load(ConnectionSettings.DefaultPath);
+
+            string path = Path.Combine(Path.GetTempPath(), "vfd-connection-test-" + Guid.NewGuid() + ".json");
+            try
+            {
+                File.WriteAllText(path,
+                    "{\"portsPerIp\":4,\"startPort\":5001,\"ipAddresses\":[\"192.168.0.201\",\"192.168.0.202\"]}");
+                ConnectionSettings settings = ConnectionSettings.Load(path);
+                Assert(settings.MaxChannels == 8, "channel count is derived from JSON");
+
+                string ip;
+                int port;
+                Assert(settings.TryGetEndpoint(0, out ip, out port) && ip == "192.168.0.201" && port == 5001,
+                    "first channel uses the first IP and start port");
+                Assert(settings.TryGetEndpoint(3, out ip, out port) && ip == "192.168.0.201" && port == 5004,
+                    "last channel in a group uses the last port");
+                Assert(settings.TryGetEndpoint(4, out ip, out port) && ip == "192.168.0.202" && port == 5001,
+                    "next group starts at the next IP and start port");
+                Assert(settings.TryGetEndpoint(7, out ip, out port) && ip == "192.168.0.202" && port == 5004,
+                    "last configured channel is mapped");
+                Assert(!settings.TryGetEndpoint(8, out ip, out port),
+                    "channels outside the configured range are rejected");
+
+                File.WriteAllText(path,
+                    "{\"portsPerIp\":0,\"startPort\":5001,\"ipAddresses\":[\"192.168.0.201\"]}");
+                bool rejectedInvalidSettings = false;
+                try { ConnectionSettings.Load(path); }
+                catch (InvalidDataException) { rejectedInvalidSettings = true; }
+                Assert(rejectedInvalidSettings, "invalid connection settings are rejected before startup");
+
+                File.WriteAllText(path, "{");
+                bool rejectedMalformedJson = false;
+                try { ConnectionSettings.Load(path); }
+                catch (InvalidDataException) { rejectedMalformedJson = true; }
+                Assert(rejectedMalformedJson, "malformed JSON is rejected before startup");
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
         }
 
         private static async Task OpeningConnectionSendsNoControlPayloadAsync()
@@ -96,6 +143,7 @@ namespace vfd_monitor_nmodbus.Tests
             {
                 FailedReadDoesNotProduceMeasurement();
                 SuccessfulZeroIsAValidMeasurement();
+                ConnectionSettingsUseConfiguredIpAndPortGroups();
                 OpeningConnectionSendsNoControlPayloadAsync().GetAwaiter().GetResult();
                 ClosedPeerIsDetectedAsDisconnectedAsync().GetAwaiter().GetResult();
             }
