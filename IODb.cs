@@ -30,7 +30,7 @@ namespace vfd_monitor_nmodbus
             {
                 ChannelFreqDict[i] = new ChannelFreq
                 {
-                    Enabled = i < 64,
+                    Enabled = true,
                     Opposite = false,
                     ForwardFreq = 0,
                     BackwardFreq = 0
@@ -61,6 +61,7 @@ namespace vfd_monitor_nmodbus
                     && double.TryParse(parts[3], out double forfreq)
                     && double.TryParse(parts[4], out double backfreq))
                 {
+                    if (ch < 0 || ch >= MAX_CHANNEL) continue;
                     if (forfreq < MIN_FREQ || forfreq > MAX_FREQ || backfreq < MIN_FREQ || backfreq > MAX_FREQ)
                     {
                         VfdMonitorForm.Instance.AppendLog($"变频器支持频率范围{MIN_FREQ}-{MAX_FREQ}，请检查频率输入值");

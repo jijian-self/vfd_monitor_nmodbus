@@ -30,34 +30,15 @@ namespace vfd_monitor_nmodbus
         private const int CONNECT_TIMEOUT_MILLISECONDS = 3000;
         private const int COMMUNICATION_ERROR_LOG_INTERVAL_MILLISECONDS = 2000;
         private const int STOP_COMMAND_REPEAT_INTERVAL = 100; // 持续停止命令的轮询间隔
-        private const int MAX_CHANNEL = 256;
-        private const int SHOW_CHANNEL = 64;
-        private const int GROUP_SIZE = 32;           // 每组同IP8台
-        private readonly string[] GROUP_IPS = {      // 12个网口IP
-            "192.168.0.201",
-            "192.168.0.202",
-            "192.168.0.203",
-            "192.168.0.204",
-            "192.168.0.205",
-            "192.168.0.206",
-            "192.168.0.207",
-            "192.168.0.208"
-        };
-        private const int TCP_PORT = 5001;
+        private readonly ConnectionSettings _connectionSettings;
+        private int MAX_CHANNEL => _connectionSettings.MaxChannels;
+        private int GROUP_SIZE => _connectionSettings.PortsPerIp;
         private const byte SLAVE_ID = 0x01;
         private const byte FUN_READ = 0x03;
         private const byte FUN_WRITE = 0x06;
         private const byte FUN_MULTI_WRITE = 0x10;
         private readonly int REG_START_FREQ_ADDR = 0x0006; //停机下修改频率源为485
         private readonly int REG_START_CMD_ADDR = 0x0005; //停机下修改命令源为485
-        private readonly int REG_FORWARD_BREAK_TORQUE_MAX = 0x0321; //修改正转制动转矩上限为50%
-        private readonly int REG_BACKWARD_BREAK_TORQUE_MAX = 0x0323; //修改反转制动转矩上限为50%
-        private readonly int REG_FORWARD_TORQUE_MAX = 0x0320; //修改正转电动转矩上限为120%
-        private readonly int REG_BACKWARD_TORQUE_MAX = 0x0322; //修改反转电动转矩上限为120%
-        private readonly int REG_MAX_FREQ = 0x0402; //修改M1最高频率
-        private readonly int REG_PM_MAX = 0x0419; //修改PM辨识电流阈值100%
-        private readonly int REG_PM_A = 0x0411;  //修改PM额定电流1500
-        private readonly int REG_CARRIER_FREQ = 0x000F; //停机下修改载波频率
         private readonly int REG_FORWARD_RUN_CMD = 0x0012;
         private readonly int REG_BACKWARD_RUN_CMD = 0x0022;
         private readonly int REG_STOP_CMD = 0x0001;
@@ -96,13 +77,18 @@ namespace vfd_monitor_nmodbus
         private readonly int[] _chartBaseHeights = { 190, 190, 200 };
         private const int LAYOUT_DATA_BASE_HEIGHT = 200;
         private const double PLOT_X_MIN = 0.5;
-        private const double PLOT_X_MAX = MAX_CHANNEL + 0.5;
-        private const double PLOT_MIN_VISIBLE_CHANNELS = 16;
+        private double PLOT_X_MAX => MAX_CHANNEL + 0.5;
+        private double PLOT_MIN_VISIBLE_CHANNELS => Math.Min(16, MAX_CHANNEL);
         private const string PLOT_FONT_NAME = "Microsoft YaHei";
 
         public int GetMaxChannel()
         {
             return MAX_CHANNEL;
+        }
+
+        public int GetGroupSize()
+        {
+            return GROUP_SIZE;
         }
         #endregion
 
@@ -137,10 +123,16 @@ namespace vfd_monitor_nmodbus
         private double _panStartRight;
         #endregion
 
-        public VfdMonitorForm()
+        public VfdMonitorForm() : this(ConnectionSettings.Load(ConnectionSettings.DefaultPath))
         {
+        }
+
+        public VfdMonitorForm(ConnectionSettings settings)
+        {
+            _connectionSettings = settings ?? throw new ArgumentNullException(nameof(settings));
             Instance = this;
             InitializeComponent();
+            Text = $"{MAX_CHANNEL}路VFD变频器监控系统";
             InitVariables();
             InitChart();
             InitLogFile();
@@ -305,39 +297,15 @@ namespace vfd_monitor_nmodbus
         {
             for (int i = 0; i < MAX_CHANNEL; i++)
             {
-                //SendCmd(i, REG_START_CMD_ADDR, 0x0002);
-                //SendCmd(i, REG_START_FREQ_ADDR, 0x0001);
-                //SendCmd(i, REG_CARRIER_FREQ, 0x0002);
-                //SendCmd(i, REG_FORWARD_BREAK_TORQUE_MAX, 0x0032);
-                //SendCmd(i, REG_BACKWARD_BREAK_TORQUE_MAX, 0x0032);
-                SendCmd(i, REG_FORWARD_TORQUE_MAX, 0x0064);
-                SendCmd(i, REG_BACKWARD_TORQUE_MAX, 0x0064);
-                //SendCmd(i, REG_MAX_FREQ, 0xC350);
-                //SendCmd(i, REG_PM_MAX, 0x2710);
-                //SendCmd(i, REG_PM_A, 0x05DC);
-            }
-        }
-
-        private bool GetChannelIp(int ch, out string ip)
-        {
-            ip = "";
-            try
-            {
-                int group = ch / GROUP_SIZE;
-                int index = ch % GROUP_SIZE;
-                ip = GROUP_IPS[group];
-                return true;
-            }
-            catch
-            {
-                return false;
+                SendCmd(i, REG_START_CMD_ADDR, 0x0002);
+                SendCmd(i, REG_START_FREQ_ADDR, 0x0001);
             }
         }
 
         private async Task ConnectTcp()
         {
             AppendLog("开始连接启用的变频器...");
-            int group_cnt = MAX_CHANNEL / GROUP_SIZE;
+            int group_cnt = _connectionSettings.IpAddresses.Length;
             
             for (int iter = 0; iter < group_cnt; iter++)
             {
@@ -364,8 +332,7 @@ namespace vfd_monitor_nmodbus
             ModbusChannelConnection newConnection = null;
             try
             {
-                int index = ch % GROUP_SIZE;
-                if (!GetChannelIp(ch, out string ip))
+                if (!_connectionSettings.TryGetEndpoint(ch, out string ip, out int port))
                     throw new InvalidOperationException("通道IP映射失败");
 
                 // Only replace transport objects here. Reconnection must never send
@@ -382,7 +349,7 @@ namespace vfd_monitor_nmodbus
 
                 newConnection = await _connectionFactory.ConnectAsync(
                     ip,
-                    TCP_PORT + index,
+                    port,
                     CONNECT_TIMEOUT_MILLISECONDS);
 
                 await _modbusLock[ch].WaitAsync();
@@ -404,7 +371,7 @@ namespace vfd_monitor_nmodbus
                     _modbusLock[ch].Release();
                 }
 
-                AppendLog($"通道{ch + 1} 通信连接成功：{ip}:{TCP_PORT + index}");
+                AppendLog($"通道{ch + 1} 通信连接成功：{ip}:{port}");
             }
             catch (Exception ex)
             {
@@ -730,13 +697,10 @@ namespace vfd_monitor_nmodbus
         {
             List<double> xs = new List<double>();
             List<double> ys = new List<double>();
-            int showChannel = 0;
 
             for (int i = 0; i < MAX_CHANNEL; i++)
             {
                 if (!database.ChannelFreqDict[i].Enabled) continue;
-                showChannel++;
-                if (showChannel > SHOW_CHANNEL) break;
                 if (!readDataValid[i, dataIndex]) continue;
 
                 xs.Add(i + 1);
@@ -759,15 +723,12 @@ namespace vfd_monitor_nmodbus
             double min = double.MaxValue;
             double max = double.MinValue;
             double nonZeroMin = double.MaxValue;
-            int showChannel = 0;
             bool hasValue = false;
             bool hasNonZeroValue = false;
 
             for (int i = 0; i < MAX_CHANNEL; i++)
             {
                 if (!database.ChannelFreqDict[i].Enabled) continue;
-                showChannel++;
-                if (showChannel > SHOW_CHANNEL) break;
                 if (!readDataValid[i, dataIndex]) continue;
 
                 double x = i + 1;

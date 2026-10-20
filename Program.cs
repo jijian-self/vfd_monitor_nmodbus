@@ -16,7 +16,22 @@ namespace vfd_monitor_nmodbus
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new VfdMonitorForm());
+            ConnectionSettings settings;
+            try
+            {
+                settings = ConnectionSettings.Load(ConnectionSettings.DefaultPath);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"读取连接配置失败：\n{ConnectionSettings.DefaultPath}\n\n{ex.Message}",
+                    "配置错误",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return;
+            }
+
+            Application.Run(new VfdMonitorForm(settings));
         }
     }
 }

@@ -103,6 +103,7 @@
       <HintPath>C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\System.dll</HintPath>
     </Reference>
     <Reference Include="System.Core" />
+    <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.Windows.Forms.DataVisualization" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
@@ -122,6 +123,7 @@
       <DependentUpon>ChannelSelectForm.cs</DependentUpon>
     </Compile>
     <Compile Include="CommunicationRecovery.cs" />
+    <Compile Include="ConnectionSettings.cs" />
     <Compile Include="FaultDictionary.cs" />
     <Compile Include="IODb.cs" />
     <Compile Include="SetFreqForm.cs">
@@ -180,6 +182,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
+    <Content Include="Config\connection.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="ScottPlot.WinForms" Version="5.0.15" />

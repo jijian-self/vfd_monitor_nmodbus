@@ -141,3 +141,5 @@ C:\Users\wqj10\Downloads\vfd_monitor_nmodbus_1012\bin\Debug\SkiaSharp.Views.Desk
 C:\Users\wqj10\Downloads\vfd_monitor_nmodbus_1012\bin\Debug\OpenTK.pdb
 C:\Users\wqj10\Downloads\vfd_monitor_nmodbus_1012\bin\Debug\OpenTK.GLControl.pdb
 C:\Users\wqj10\Downloads\vfd_monitor_nmodbus_1012\obj\Debug\vfd_moni.8EB44F1D.Up2Date
+F:\workspace\Universal_Control_Software\proj\vfd_monitor_nmodbus\obj\Debug\vfd_monitor_nmodbus.WriteForm.resources
+F:\workspace\Universal_Control_Software\proj\vfd_monitor_nmodbus\bin\Debug\Config\connection.json
