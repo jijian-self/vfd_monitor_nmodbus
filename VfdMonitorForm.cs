@@ -132,7 +132,7 @@ namespace vfd_monitor_nmodbus
             _connectionSettings = settings ?? throw new ArgumentNullException(nameof(settings));
             Instance = this;
             InitializeComponent();
-            Text = $"{MAX_CHANNEL}路VFD变频器监控系统";
+            Text = "VFD变频器监控系统";
             InitVariables();
             InitChart();
             InitLogFile();
@@ -529,7 +529,7 @@ namespace vfd_monitor_nmodbus
                     continue;
                 }
 
-                AppendLog($"ch = {ch} 收到freq-{freq}");
+                //AppendLog($"ch = {ch} 收到freq-{freq}");
 
                 if (value != REG_STOP_CMD && freq > 0) { AppendLog($"通道{ch + 1} 开始运行"); break; }
                 if (value == REG_STOP_CMD && freq == 0) { AppendLog($"通道{ch + 1} 停止运行"); break; }
@@ -556,7 +556,7 @@ namespace vfd_monitor_nmodbus
                 await Task.Delay(WRITE_WAIT_DELAY, cancellationToken);
                 await master.WriteSingleRegisterAsync(SLAVE_ID, (ushort)addr, (ushort)value);
                 if (logSuccess)
-                    AppendLog($"通道{ch + 1} 发送指令： addr-{addr} val-{value}");
+                    AppendLog($"通道{ch + 1} 发送指令： addr-{$"0x{addr:X4}"} val-{value}");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
