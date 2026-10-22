@@ -3,12 +3,16 @@
   "WorkspaceRootPath": "F:\\workspace\\Universal_Control_Software\\proj\\vfd_monitor_nmodbus\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{563E1D4C-A2B7-4B8D-8D93-0E0C064ACA0B}|vfd_monitor_nmodbus.csproj|f:\\workspace\\universal_control_software\\proj\\vfd_monitor_nmodbus\\config\\connection.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
-      "RelativeMoniker": "D:0:0:{563E1D4C-A2B7-4B8D-8D93-0E0C064ACA0B}|vfd_monitor_nmodbus.csproj|solutionrelative:config\\connection.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+      "AbsoluteMoniker": "D:0:0:{563E1D4C-A2B7-4B8D-8D93-0E0C064ACA0B}|vfd_monitor_nmodbus.csproj|f:\\workspace\\universal_control_software\\proj\\vfd_monitor_nmodbus\\writeform.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{563E1D4C-A2B7-4B8D-8D93-0E0C064ACA0B}|vfd_monitor_nmodbus.csproj|solutionrelative:writeform.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{563E1D4C-A2B7-4B8D-8D93-0E0C064ACA0B}|vfd_monitor_nmodbus.csproj|f:\\workspace\\universal_control_software\\proj\\vfd_monitor_nmodbus\\vfdmonitorform.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "AbsoluteMoniker": "D:0:0:{563E1D4C-A2B7-4B8D-8D93-0E0C064ACA0B}|vfd_monitor_nmodbus.csproj|F:\\workspace\\Universal_Control_Software\\proj\\vfd_monitor_nmodbus\\vfdmonitorform.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{563E1D4C-A2B7-4B8D-8D93-0E0C064ACA0B}|vfd_monitor_nmodbus.csproj|solutionrelative:vfdmonitorform.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{563E1D4C-A2B7-4B8D-8D93-0E0C064ACA0B}|vfd_monitor_nmodbus.csproj|F:\\workspace\\Universal_Control_Software\\proj\\vfd_monitor_nmodbus\\config\\connection.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{563E1D4C-A2B7-4B8D-8D93-0E0C064ACA0B}|vfd_monitor_nmodbus.csproj|solutionrelative:config\\connection.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
     }
   ],
   "DocumentGroupContainers": [
@@ -23,6 +27,19 @@
             {
               "$type": "Document",
               "DocumentIndex": 0,
+              "Title": "WriteForm.cs",
+              "DocumentMoniker": "F:\\workspace\\Universal_Control_Software\\proj\\vfd_monitor_nmodbus\\WriteForm.cs",
+              "RelativeDocumentMoniker": "WriteForm.cs",
+              "ToolTip": "F:\\workspace\\Universal_Control_Software\\proj\\vfd_monitor_nmodbus\\WriteForm.cs",
+              "RelativeToolTip": "WriteForm.cs",
+              "ViewState": "AgIAACAAAAAAAAAAAAAzwEIAAAANAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-10-21T05:56:27.713Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
               "Title": "connection.json",
               "DocumentMoniker": "F:\\workspace\\Universal_Control_Software\\proj\\vfd_monitor_nmodbus\\Config\\connection.json",
               "RelativeDocumentMoniker": "Config\\connection.json",
@@ -30,8 +47,7 @@
               "RelativeToolTip": "Config\\connection.json",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAEAAAASAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
-              "WhenOpened": "2026-10-20T03:01:08.814Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-10-20T03:01:08.814Z"
             },
             {
               "$type": "Document",
@@ -41,7 +57,7 @@
               "RelativeDocumentMoniker": "VfdMonitorForm.cs",
               "ToolTip": "F:\\workspace\\Universal_Control_Software\\proj\\vfd_monitor_nmodbus\\VfdMonitorForm.cs",
               "RelativeToolTip": "VfdMonitorForm.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAABMAAAAIAAAAAAAAAA==",
+              "ViewState": "AgIAAMkEAAAAAAAAAADwv+IEAAAZAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-05-21T01:53:34.684Z",
               "EditorCaption": ""

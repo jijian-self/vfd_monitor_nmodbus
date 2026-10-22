@@ -23,13 +23,20 @@ namespace vfd_monitor_nmodbus
             for (int ch = 0; ch < MAX_CHANNEL; ch++)
             {
                 if (VfdMonitorForm.Instance.database.ChannelFreqDict[ch].Enabled) {
-                    comboBoxChannel.Items.Add(ch.ToString());
+                    int ch_word = ch + 1;
+                    comboBoxChannel.Items.Add(ch_word.ToString());
                 }
             }
+            comboBoxChannel.SelectedIndex = 0;
         }
 
         private void btnRead_Click(object sender, EventArgs e)
         {
+            if (!VfdMonitorForm.Instance.isRunning)
+            {
+                MessageBox.Show("未启动控制系统", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             if (textBoxAddress.TextLength != 4)
             {
                 MessageBox.Show("请输入4位整数值", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -41,7 +48,7 @@ namespace vfd_monitor_nmodbus
                 return;
             }
             int address = Convert.ToInt32(textBoxAddress.Text, 16);
-            int channel = Convert.ToInt32(comboBoxChannel.SelectedItem);
+            int channel = Convert.ToInt32(comboBoxChannel.SelectedItem) - 1;
             ReadChannel(channel, address);
         }
 
@@ -53,6 +60,11 @@ namespace vfd_monitor_nmodbus
 
         private void btnWrite_Click(object sender, EventArgs e)
         {
+            if (!VfdMonitorForm.Instance.isRunning)
+            {
+                MessageBox.Show("未启动控制系统", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             if (textBoxAddress.TextLength != 4 || textBoxValue.TextLength != 4)
             {
                 MessageBox.Show("请输入4位整数值", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -60,11 +72,19 @@ namespace vfd_monitor_nmodbus
             }
             int address = Convert.ToInt32(textBoxAddress.Text, 16);
             int value = Convert.ToInt32(textBoxValue.Text, 16);
-            for (int ch = 0; ch < MAX_CHANNEL; ch++)
+            if (comboBoxChannel.SelectedIndex > 0)
             {
+                int ch = Convert.ToInt32(comboBoxChannel.SelectedItem) - 1;
                 VfdMonitorForm.Instance.SendCmd(ch, address, value);
             }
-            this.Close();
+            else
+            {
+                for (int ch = 0; ch < MAX_CHANNEL; ch++)
+                {
+                    VfdMonitorForm.Instance.SendCmd(ch, address, value);
+                }
+                this.Close();
+            }
         }
     }
 }
